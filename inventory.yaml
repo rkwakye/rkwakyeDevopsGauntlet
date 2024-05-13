@@ -1,0 +1,10 @@
+[win]
+10.0.0.4
+10.0.0.6
+
+[win:vars]
+ansible_user=demousr
+ansible_password=temporaryPASSWORD!
+ansible_connection=winrm
+ansible_winrm_server_cert_validation=ignore
+

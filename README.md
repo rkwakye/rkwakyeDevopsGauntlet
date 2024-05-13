@@ -1,1 +1,1 @@
-# rkwakyeDevopsGauntlet
+Deploy Azure Resources using Terraform and Ansible

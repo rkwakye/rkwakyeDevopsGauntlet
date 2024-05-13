@@ -1,0 +1,122 @@
+---
+- name: Install and configure IIS
+  hosts: all
+  gather_facts: no
+  tasks:
+
+    - name: Install IIS via Powershell
+      win_shell: |
+        Write-Host "Main command..."
+        cmd /c start /wait dism /Online /Enable-Feature /FeatureName:IIS-WebServer /FeatureName:IIS-WebServerManagementTools /FeatureName:IIS-WebServerRole /FeatureName:IIS-ManagementConsole /FeatureName:IIS-ApplicationDevelopment /FeatureName:IIS-ASPNET /FeatureName:IIS-ASPNET45 /FeatureName:IIS-NetFxExtensibility /FeatureName:IIS-NetFxExtensibility45 /FeatureName:NetFx4Extended-ASPNET45 /FeatureName:IIS-CommonHttpFeatures /FeatureName:IIS-DefaultDocument /FeatureName:IIS-DirectoryBrowsing /FeatureName:IIS-HealthAndDiagnostics /FeatureName:IIS-HttpLogging /FeatureName:IIS-LoggingLibraries /FeatureName:IIS-RequestMonitor /FeatureName:IIS-HttpCompressionStatic /FeatureName:IIS-HttpErrors /FeatureName:IIS-HttpRedirect /FeatureName:IIS-IIS6ManagementCompatibility /FeatureName:IIS-ISAPIExtensions /FeatureName:IIS-ISAPIFilter /FeatureName:IIS-WebSockets /FeatureName:IIS-RequestFiltering /FeatureName:IIS-Performance /FeatureName:IIS-Security /FeatureName:IIS-StaticContent /FeatureName:WAS-ConfigurationAPI /FeatureName:WAS-NetFxEnvironment /FeatureName:WAS-ProcessModel /FeatureName:WAS-WindowsActivationService /All
+        Write-Host "ASP.NET 4.5..."
+        cmd /c start /wait dism /Online /Enable-Feature /FeatureName:IIS-ASPNET45 /All
+        Write-Host "WAS..."
+        Install-WindowsFeature "Web-Server","Web-Http-Errors","Web-App-Dev","Web-Asp-Net","Web-Net-Ext","Web-ASP","Web-CGI","Web-ISAPI-Ext","Web-ISAPI-Filter","Web-Includes","Web-Basic-Auth","Web-Windows-Auth","Web-Mgmt-Compat","Web-Metabase","Web-WMI","Web-Lgcy-Scripting","Web-Lgcy-Mgmt-Console","NET-HTTP-Activation","NET-HTTP-Activation","NET-Non-HTTP-Activ","NET-WCF-HTTP-Activation45","NET-WCF-MSMQ-Activation45","NET-WCF-Pipe-Activation45","NET-WCF-TCP-Activation45"
+        Write-Host "Disabling services..."
+        Stop-Service IISADMIN
+        Stop-Service NetMsmqActivator
+        Stop-Service NetPipeActivator
+        Stop-Service NetTcpActivator
+        Stop-Service NetTcpPortSharing
+        Stop-Service W3SVC
+        Stop-Service WAS
+        Stop-Service MSMQ
+        Set-Service MSMQ -StartupType Manual
+        Set-Service IISADMIN -StartupType Manual
+        Set-Service NetMsmqActivator -StartupType Manual
+        Set-Service NetPipeActivator -StartupType Manual
+        Set-Service NetTcpActivator -StartupType Manual
+        Set-Service NetTcpPortSharing -StartupType Manual
+        Set-Service WAS -StartupType Manual
+        Set-Service W3SVC -StartupType Manual
+        
+    - name: Reboot servers
+      win_reboot:
+        reboot_timeout: 1800
+          
+    - name: Configure Web Site
+      win_iis_website:
+        name: "Default Web Site"
+        physical_path: "C:\\inetpub\\wwwroot"
+        port: 443
+        ssl: true
+        application_pool: DefaultAppPool
+        state: started
+
+    # - name: Create Self-Signed Certificate
+    #   win_shell: |
+    #     Import-Module WebAdministration
+    #     Set-Location IIS:\SslBindings
+    #     New-WebBinding -Name "Default Web Site" -IP "*" -Port 443 -Protocol https
+    #     $c = New-SelfSignedCertificate -DnsName "cats.internet.local" -CertStoreLocation cert:\LocalMachine\my
+    #     $c | New-Item 0.0.0.0!443
+
+    - name: Configure IIS binding
+      win_iis_webbinding:
+        name: "Default Web Site"
+        protocol: https
+        port: 443
+        ip: 20.168.236.2
+        certificate_store_name: my
+        state: present
+
+    - name: Download index.html from blob storage
+      uri:
+        url: "https://rkwakyestore123456kforce.blob.core.windows.net/data/index.html"
+        dest: /tmp/index.html
+        status_code:
+        - 200
+        - 304       
+        method: GET 
+      delegate_to: localhost
+
+    - name: Download cats.jpg from blob storage
+      uri:
+        url: "https://rkwakyestore123456kforce.blob.core.windows.net/data/cats.jpg"  
+        dest: /tmp/cats.jpg
+        status_code:
+        - 200
+        - 304       
+        method: GET 
+      delegate_to: localhost
+
+
+    - name: Copy index.html to wwwroot
+      win_copy:
+        src: /tmp/index.html
+        dest: C:\\inetpub\\wwwroot\\index.html
+     
+    - name: Create images folder
+      win_file:
+        path: C:\\inetpub\\wwwroot\\images\\
+        state: directory
+
+    - name: Copy cats.jpg to wwwroot images
+      win_copy:
+        src: /tmp/cats.jpg
+        dest: C:\\inetpub\\wwwroot\\images\\cats.jpg
+
+    - name: Set permissions for IIS index
+      win_command: cmd.exe /k CACLS C:\inetpub\wwwroot\index.html /E /G "IIS_IUSRS":R
+      
+    - name: Set permissions for ISS image
+      win_command: cmd.exe /k CACLS C:\inetpub\wwwroot\images\cats.jpg /E /G "IIS_IUSRS":R
+
+    - name: Reset Services
+      win_service:
+        name: w3svc
+        state: restarted
+
+
+    - name: Restart App Pool
+      win_iis_webapppool:
+        name: DefaultAppPool
+        state: restarted
+
+    - name: Configure Anonymous authentication
+      win_command: cmd.exe /k %windir%\system32\inetsrv\appcmd.exe set config  -section:system.webServer/security/authentication/anonymousAuthentication /userName:""  /commit:apphost
+
+    - name: Reset Services Again
+      win_service:
+        name: w3svc
+        state: restarted     
